@@ -12,6 +12,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/trii.conf"
+source "$SCRIPT_DIR/resolve-project.sh"
 
 # Load .env for tokens
 if [ -f "$SCRIPT_DIR/.env" ]; then
@@ -40,14 +41,8 @@ for f in "$DISPATCH_DIR"/*.json; do
   TASK=$(python3 -c "import json; print(json.load(open('$f')).get('task','No task specified'))")
   CHANNEL=$(python3 -c "import json; print(json.load(open('$f')).get('channel','general'))")
 
-  # Map project name to directory (add mappings as projects are assigned)
-  case "$PROJECT" in
-    trii|orchestrator) WORK_DIR="$SCRIPT_DIR" ;;
-    *)                 WORK_DIR="$SCRIPT_DIR/$PROJECT" ;;
-  esac
-
-  # Fall back to TRII root if project dir doesn't exist
-  [ -d "$WORK_DIR" ] || WORK_DIR="$SCRIPT_DIR"
+  # Resolve project directory via shared helper
+  WORK_DIR=$(resolve_project_dir "$PROJECT")
 
   echo "=== Dispatch run starting at $(date) ===" > "$LOGFILE"
   echo "Project: $PROJECT ($WORK_DIR)" >> "$LOGFILE"
@@ -73,7 +68,7 @@ Task: ${TASK}
 - Needs human (keys, money, architecture) → INBOX.md.
 - Target 5 minutes."
 
-  # Execute via adapter
+  # Execute via adapter (in project directory)
   cd "$WORK_DIR"
 
   "$SCRIPT_DIR/run-agent.sh" "$PROMPT" "dispatch-${TIMESTAMP}" >> "$LOGFILE" 2>&1 &
@@ -92,10 +87,11 @@ Task: ${TASK}
 
   cd "$SCRIPT_DIR"
 
+  # Handle result — clear success vs failure
   if [ $EXIT_CODE -ne 0 ]; then
-    echo "=== Dispatch FAILED: Exit code $EXIT_CODE at $(date) ===" >> "$LOGFILE"
+    echo "=== Dispatch FAILED (exit $EXIT_CODE) at $(date) ===" >> "$LOGFILE"
     "$SCRIPT_DIR/post-message.sh" "$CHANNEL" \
-      "❌ Dispatch failed for ${PROJECT}: exit $EXIT_CODE. Check session-log/dispatch-${TIMESTAMP}.log" \
+      "❌ Dispatch failed for ${PROJECT} (exit $EXIT_CODE). Check session-log/dispatch-${TIMESTAMP}.log" \
       2>/dev/null || true
   else
     echo "=== Dispatch completed at $(date) ===" >> "$LOGFILE"

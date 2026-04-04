@@ -4,14 +4,16 @@
 # Runs on a schedule via launchd. Each invocation:
 # 1. Checks for pending dispatches (priority)
 # 2. Picks next project from rotation
-# 3. Executes via run-agent.sh
-# 4. Posts results via post-message.sh
-# 5. Logs to session-log/
+# 3. cd's to project directory
+# 4. Executes via run-agent.sh
+# 5. Posts results via post-message.sh (only on success)
+# 6. Logs to session-log/ with clear success/failure status
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/trii.conf"
+source "$SCRIPT_DIR/resolve-project.sh"
 
 # Load .env for tokens
 if [ -f "$SCRIPT_DIR/.env" ]; then
@@ -23,10 +25,8 @@ fi
 export HOME="${HOME:-$(eval echo ~)}"
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
-# Create session-log directory if needed
 mkdir -p "$SCRIPT_DIR/session-log"
 
-# Timestamped log file
 TIMESTAMP=$(date +%Y-%m-%d-%H%M)
 LOGFILE="$SCRIPT_DIR/session-log/${TIMESTAMP}.log"
 
@@ -42,7 +42,7 @@ fi
 
 # --- Project rotation ---
 # Add projects to this array as you assign them.
-# Format: ("project1" "project2" "debug")
+# Each name must match a subdirectory under TRII_HOME.
 PROJECTS=()
 
 if [ ${#PROJECTS[@]} -eq 0 ]; then
@@ -58,6 +58,10 @@ NEXT_ROTATION=$(( (ROTATION + 1) % ${#PROJECTS[@]} ))
 echo "$NEXT_ROTATION" > "$ROTATION_FILE"
 echo "Run rotation: slot $ROTATION/${#PROJECTS[@]} → target: $RUN_TARGET" >> "$LOGFILE"
 
+# --- Resolve project directory ---
+WORK_DIR=$(resolve_project_dir "$RUN_TARGET")
+echo "Working directory: $WORK_DIR" >> "$LOGFILE"
+
 # --- Read channel for this project ---
 PROJECT_CHANNEL=$(python3 -c "
 import json
@@ -65,10 +69,9 @@ with open('$SCRIPT_DIR/channels.json') as f:
     channels = json.load(f)
 ch = channels.get('$RUN_TARGET', channels.get('general', {}))
 print(ch.get('id', ''))
-" 2>/dev/null)
+" 2>/dev/null || echo "")
 
 # --- Build prompt ---
-# Identity header — sent with every run
 IDENTITY="You are TRII — an autonomous technical operator. Ship code, surface signal, stay out of the way.
 
 ## Voice Rules
@@ -81,11 +84,11 @@ IDENTITY="You are TRII — an autonomous technical operator. Ship code, surface 
 To post status updates, write your message to stdout. The orchestrator will route it.
 
 ## This run: $RUN_TARGET
-Read the project's NEXT_STEPS.md and PROJECT_STATUS.md, pick the highest-priority task, execute it.
+Working directory: $WORK_DIR
 
 Steps:
-1. Read project state files
-2. Pick task, implement it
+1. Read project state files (NEXT_STEPS.md, PROJECT_STATUS.md)
+2. Pick the highest-priority task, implement it
 3. Run tests/validation if applicable
 4. Commit changes
 5. Write a 1-2 line summary of what you did
@@ -101,33 +104,45 @@ Rules:
   pkill -f "run-agent.sh.*trii-${TIMESTAMP}" 2>/dev/null && \
     echo "=== TIMEOUT: Run killed after ${TIMEOUT}s at $(date) ===" >> "$LOGFILE" && \
     "$SCRIPT_DIR/post-message.sh" "${PROJECT_CHANNEL:-general}" \
-      "⚠️ TRII run timed out after ${TIMEOUT}s. Check session-log/${TIMESTAMP}.log" \
+      "⚠️ TRII run timed out after ${TIMEOUT}s ($RUN_TARGET). Check session-log/${TIMESTAMP}.log" \
       2>/dev/null
 ) &
 WATCHDOG_PID=$!
 
-# --- Execute ---
+# --- Execute (cd to project directory) ---
 echo "=== Agent execution starting at $(date) ===" >> "$LOGFILE"
 
-AGENT_OUTPUT=$("$SCRIPT_DIR/run-agent.sh" "$IDENTITY" "trii-${TIMESTAMP}" 2>> "$LOGFILE") || true
+cd "$WORK_DIR"
+AGENT_OUTPUT=$("$SCRIPT_DIR/run-agent.sh" "$IDENTITY" "trii-${TIMESTAMP}" 2>> "$LOGFILE")
+AGENT_EXIT=$?
+cd "$SCRIPT_DIR"
+
 echo "$AGENT_OUTPUT" >> "$LOGFILE"
 
 # Kill watchdog
 kill $WATCHDOG_PID 2>/dev/null
 wait $WATCHDOG_PID 2>/dev/null
 
-# --- Post result ---
+# --- Handle result (never false-positive success) ---
+if [ $AGENT_EXIT -ne 0 ]; then
+  echo "=== TRII run FAILED (exit $AGENT_EXIT) at $(date) ===" >> "$LOGFILE"
+  "$SCRIPT_DIR/post-message.sh" "${PROJECT_CHANNEL:-general}" \
+    "❌ TRII run failed for $RUN_TARGET (exit $AGENT_EXIT). Check session-log/${TIMESTAMP}.log" \
+    2>> "$LOGFILE" || true
+  exit $AGENT_EXIT
+fi
+
+# --- Post result (success only) ---
 if [ -n "$AGENT_OUTPUT" ] && [ -n "$PROJECT_CHANNEL" ]; then
-  # Extract last meaningful line as summary
   SUMMARY=$(echo "$AGENT_OUTPUT" | grep -v '^\s*$' | tail -3)
-  "$SCRIPT_DIR/post-message.sh" "${PROJECT_CHANNEL}" "$SUMMARY" 2>> "$LOGFILE" || true
+  "$SCRIPT_DIR/post-message.sh" "$PROJECT_CHANNEL" "$SUMMARY" 2>> "$LOGFILE" || true
 fi
 
 echo "=== TRII run completed at $(date) ===" >> "$LOGFILE"
 
 # --- Auto-push repos ---
 echo "=== Pushing to GitHub ===" >> "$LOGFILE"
-for REPO_DIR in "$SCRIPT_DIR" "$SCRIPT_DIR"/*/; do
+for REPO_DIR in "$SCRIPT_DIR" "$WORK_DIR"; do
   if [ -d "$REPO_DIR/.git" ]; then
     REPO_NAME=$(basename "$REPO_DIR")
     cd "$REPO_DIR"
