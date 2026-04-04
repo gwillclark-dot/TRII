@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENT.md
 
 > Coding instructions for Claude Code in this repository.
 

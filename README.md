@@ -170,7 +170,7 @@ TRII/
 ├── resolve-project.sh     # Project → directory resolver
 ├── trii-run.sh            # Main orchestrator
 ├── dispatch-watcher.sh    # Dispatch handler
-├── CLAUDE.md              # Agent identity
+├── AGENT.md               # Agent identity
 ├── SPEC.md                # Operating spec
 ├── STATE.md               # Current state
 ├── RADAR.md               # Project portfolio

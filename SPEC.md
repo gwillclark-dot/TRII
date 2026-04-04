@@ -31,7 +31,7 @@ Each repository must maintain these files:
 
 | File | Purpose |
 |------|---------|
-| `CLAUDE.md` | Coding instructions |
+| `AGENT.md` | Coding instructions |
 | `PROJECT_STATUS.md` | Current direction |
 | `NEXT_STEPS.md` | Task queue |
 | `DECISIONS.md` | Architectural memory |

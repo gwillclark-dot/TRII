@@ -10,7 +10,7 @@
 ## How to Add a Project
 
 Register a repo by adding it here and ensuring it has the canonical state files:
-- `CLAUDE.md`
+- `AGENT.md`
 - `PROJECT_STATUS.md`
 - `NEXT_STEPS.md`
 - `DECISIONS.md`
