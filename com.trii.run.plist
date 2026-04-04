@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trii.run</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/CHANGE_ME/TRII/trii-run.sh</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>3600</integer>
+    <key>WorkingDirectory</key>
+    <string>/CHANGE_ME/TRII</string>
+    <key>StandardOutPath</key>
+    <string>/CHANGE_ME/TRII/session-log/launchd-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/CHANGE_ME/TRII/session-log/launchd-stderr.log</string>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
