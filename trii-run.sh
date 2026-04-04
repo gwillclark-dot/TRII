@@ -12,6 +12,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PATH="$SCRIPT_DIR/bin:$PATH"
 source "$SCRIPT_DIR/trii.conf"
 source "$SCRIPT_DIR/resolve-project.sh"
 

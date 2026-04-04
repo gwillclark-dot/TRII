@@ -11,6 +11,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PATH="$SCRIPT_DIR/bin:$PATH"
 source "$SCRIPT_DIR/trii.conf"
 source "$SCRIPT_DIR/resolve-project.sh"
 
@@ -49,29 +50,29 @@ for f in "$DISPATCH_DIR"/*.json; do
   echo "Task: $TASK" >> "$LOGFILE"
   echo "" >> "$LOGFILE"
 
-  PROMPT="You are TRII — an autonomous technical operator. Ship code, surface signal, stay out of the way.
+  # Map project to sandbox path (agent runs inside NemoClaw sandbox)
+  SANDBOX_WORK_DIR="/sandbox/${PROJECT}"
 
-## Voice Rules
-- Brevity is respect. Lead with outcome, not process.
-- Messages: max 2-3 lines. Status emoji up front. No greetings, no sign-offs.
+  PROMPT="You are TRII, an autonomous coding agent.
 
-## DISPATCHED TASK
-Project: ${PROJECT}
-Working directory: ${WORK_DIR}
+CRITICAL: Your project files are at /sandbox/${PROJECT}/ (NOT in your default workspace directory).
+Run: ls /sandbox/${PROJECT}/ to see the actual project files before doing anything else.
 
-Task: ${TASK}
+Available projects under /sandbox/: GWS_CLI, KNOWLEDGE_CLI, Conductor_CLI
 
-## Rules
-- Ship it. Read code, make changes, commit, write result summary.
-- Autonomous — all code is on disk. Never ask for context you can read.
-- Work in ${WORK_DIR}. TRII-level changes → ${SCRIPT_DIR}.
-- Needs human (keys, money, architecture) → INBOX.md.
-- Target 5 minutes."
+Your task: ${TASK}
+
+Rules:
+- Always use absolute paths starting with /sandbox/${PROJECT}/
+- Use tools to read files and run commands. Do not describe what you would do — do it.
+- Output only the final result. No plans, no step narration.
+- Keep response under 500 words."
 
   # Execute via adapter (in project directory, own process group)
   cd "$WORK_DIR"
 
-  setsid "$SCRIPT_DIR/run-agent.sh" "$PROMPT" "dispatch-${TIMESTAMP}" >> "$LOGFILE" 2>&1 &
+  STDOUT_FILE="$SCRIPT_DIR/session-log/.dispatch-stdout-${TIMESTAMP}"
+  setsid "$SCRIPT_DIR/run-agent.sh" "$PROMPT" "dispatch-${TIMESTAMP}" > "$STDOUT_FILE" 2>> "$LOGFILE" &
   AGENT_PID=$!
   AGENT_PGID=$(ps -o pgid= -p "$AGENT_PID" 2>/dev/null | tr -d ' ')
 
@@ -101,6 +102,13 @@ Task: ${TASK}
       2>/dev/null || true
   else
     echo "=== Dispatch completed at $(date) ===" >> "$LOGFILE"
+    # Post agent response to Slack
+    if [ -s "$STDOUT_FILE" ]; then
+      RESPONSE=$(tail -10 "$STDOUT_FILE" | head -c 3000)
+      "$SCRIPT_DIR/post-message.sh" "$CHANNEL" "$RESPONSE" 2>/dev/null || true
+    else
+      "$SCRIPT_DIR/post-message.sh" "$CHANNEL" "✅ Dispatch for ${PROJECT} completed (no output)." 2>/dev/null || true
+    fi
   fi
 
   # Push changes

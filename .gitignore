@@ -1,6 +1,8 @@
 .env
+.venv/
 session-log/*.log
 session-log/.agent-stdout-*
+session-log/.dispatch-stdout-*
 dispatch/done/*.json
 __pycache__/
 *.pyc

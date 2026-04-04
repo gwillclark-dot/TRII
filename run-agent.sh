@@ -39,8 +39,15 @@ case "$MODEL_BACKEND" in
     fi
     chmod 600 "$CONF_FILE"
 
+    # Refresh Vertex AI OAuth token and inject into sandbox
+    FRESH_TOKEN=$("$SCRIPT_DIR/refresh-vertex-token.sh" 2>/dev/null)
+    if [ -n "$FRESH_TOKEN" ]; then
+      ssh -T -F "$CONF_FILE" "openshell-${SANDBOX_NAME}" \
+        "export GOOGLE_API_KEY='$FRESH_TOKEN'" >/dev/null 2>&1 || true
+    fi
+
     ssh -T -F "$CONF_FILE" "openshell-${SANDBOX_NAME}" \
-      "openclaw agent --agent main --local -m $(printf '%q' "$PROMPT") --session-id $(printf '%q' "$SESSION_ID")"
+      "GOOGLE_API_KEY='$FRESH_TOKEN' openclaw agent --agent main --local -m $(printf '%q' "$PROMPT") --session-id $(printf '%q' "$SESSION_ID")"
     ;;
 
   ollama)
