@@ -46,18 +46,35 @@ case "$MODEL_BACKEND" in
         --credential "GEMINI_API_KEY=$FRESH_TOKEN" >/dev/null 2>&1 || true
     fi
 
-    # If prompt mentions dspi/calendar/inbox, run dspi on host and prepend output
-    if echo "$PROMPT" | grep -qiE 'dspi|calendar|meeting|inbox|email|status'; then
-      DSPI_OUTPUT=$(dspi status 2>/dev/null | head -60)
-      if [ -n "$DSPI_OUTPUT" ]; then
-        PROMPT="Here is the current DSPI dashboard output (run on host, live data):
+    # Always inject live host context — calendar, inbox, contract alerts
+    # These tools need Google OAuth which only works on the host
+    DSPI_OUTPUT=$(dspi status 2>/dev/null | head -60)
+    CALENDAR_OUTPUT=$(python3 -c "
+import sys
+sys.path.insert(0, '$HOME/Desktop/Projects.nosync/GWS_CLI')
+from dspi.calendar_ctx import get_upcoming_events, build_calendar_context_string
+events = get_upcoming_events(days=14)
+print(build_calendar_context_string(events))
+" 2>/dev/null)
+    HOST_CONTEXT=""
+    if [ -n "$DSPI_OUTPUT" ]; then
+      HOST_CONTEXT="DSPI Dashboard (live data — contracts, inbox, tasks):
+${DSPI_OUTPUT}"
+    fi
+    if [ -n "$CALENDAR_OUTPUT" ]; then
+      HOST_CONTEXT="${HOST_CONTEXT}
 
-${DSPI_OUTPUT}
+Full 14-day calendar (live data with attendees):
+${CALENDAR_OUTPUT}"
+    fi
+    if [ -n "$HOST_CONTEXT" ]; then
+      PROMPT="## Live Context (fetched from host)
+
+${HOST_CONTEXT}
 
 ---
 
 ${PROMPT}"
-      fi
     fi
 
     ssh -T -F "$CONF_FILE" "openshell-${SANDBOX_NAME}" \
