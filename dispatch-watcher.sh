@@ -68,15 +68,21 @@ Task: ${TASK}
 - Needs human (keys, money, architecture) → INBOX.md.
 - Target 5 minutes."
 
-  # Execute via adapter (in project directory)
+  # Execute via adapter (in project directory, own process group)
   cd "$WORK_DIR"
 
-  "$SCRIPT_DIR/run-agent.sh" "$PROMPT" "dispatch-${TIMESTAMP}" >> "$LOGFILE" 2>&1 &
+  setsid "$SCRIPT_DIR/run-agent.sh" "$PROMPT" "dispatch-${TIMESTAMP}" >> "$LOGFILE" 2>&1 &
   AGENT_PID=$!
+  AGENT_PGID=$(ps -o pgid= -p "$AGENT_PID" 2>/dev/null | tr -d ' ')
 
-  # Watchdog
-  ( sleep "$TIMEOUT" && kill "$AGENT_PID" 2>/dev/null && \
-    echo "=== TIMEOUT: Dispatch killed after ${TIMEOUT}s at $(date) ===" >> "$LOGFILE" ) &
+  # Watchdog — kills entire process group (ssh, ollama, openclaw children)
+  (
+    sleep "$TIMEOUT"
+    if kill -0 "$AGENT_PID" 2>/dev/null; then
+      kill -- -"$AGENT_PGID" 2>/dev/null
+      echo "=== TIMEOUT: Dispatch killed after ${TIMEOUT}s at $(date) ===" >> "$LOGFILE"
+    fi
+  ) &
   WATCHDOG_PID=$!
 
   wait "$AGENT_PID"

@@ -98,23 +98,37 @@ Rules:
 - INBOX.md only for decisions requiring a human.
 - Target 5 minutes."
 
-# --- Background watchdog ---
-(
-  sleep "$TIMEOUT"
-  pkill -f "run-agent.sh.*trii-${TIMESTAMP}" 2>/dev/null && \
-    echo "=== TIMEOUT: Run killed after ${TIMEOUT}s at $(date) ===" >> "$LOGFILE" && \
-    "$SCRIPT_DIR/post-message.sh" "${PROJECT_CHANNEL:-general}" \
-      "⚠️ TRII run timed out after ${TIMEOUT}s ($RUN_TARGET). Check session-log/${TIMESTAMP}.log" \
-      2>/dev/null
-) &
-WATCHDOG_PID=$!
-
-# --- Execute (cd to project directory) ---
+# --- Execute (cd to project directory, in own process group) ---
 echo "=== Agent execution starting at $(date) ===" >> "$LOGFILE"
 
 cd "$WORK_DIR"
-AGENT_OUTPUT=$("$SCRIPT_DIR/run-agent.sh" "$IDENTITY" "trii-${TIMESTAMP}" 2>> "$LOGFILE")
+
+# Run agent in a new process group (setsid) so watchdog can kill the
+# entire tree — ssh, ollama, openclaw, and all children — not just the
+# wrapper script.
+setsid "$SCRIPT_DIR/run-agent.sh" "$IDENTITY" "trii-${TIMESTAMP}" \
+  > "$SCRIPT_DIR/session-log/.agent-stdout-${TIMESTAMP}" \
+  2>> "$LOGFILE" &
+AGENT_PID=$!
+AGENT_PGID=$(ps -o pgid= -p "$AGENT_PID" 2>/dev/null | tr -d ' ')
+
+# --- Background watchdog (kills entire process group) ---
+(
+  sleep "$TIMEOUT"
+  if kill -0 "$AGENT_PID" 2>/dev/null; then
+    kill -- -"$AGENT_PGID" 2>/dev/null
+    echo "=== TIMEOUT: Run killed after ${TIMEOUT}s at $(date) ===" >> "$LOGFILE"
+    "$SCRIPT_DIR/post-message.sh" "${PROJECT_CHANNEL:-general}" \
+      "⚠️ TRII run timed out after ${TIMEOUT}s ($RUN_TARGET). Check session-log/${TIMESTAMP}.log" \
+      2>/dev/null || true
+  fi
+) &
+WATCHDOG_PID=$!
+
+wait "$AGENT_PID"
 AGENT_EXIT=$?
+AGENT_OUTPUT=$(cat "$SCRIPT_DIR/session-log/.agent-stdout-${TIMESTAMP}" 2>/dev/null)
+rm -f "$SCRIPT_DIR/session-log/.agent-stdout-${TIMESTAMP}"
 cd "$SCRIPT_DIR"
 
 echo "$AGENT_OUTPUT" >> "$LOGFILE"
