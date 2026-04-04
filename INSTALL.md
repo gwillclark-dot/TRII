@@ -10,6 +10,7 @@ Step-by-step guide with known gotchas from real installs on Apple Silicon.
 - **16GB RAM** recommended (8GB minimum)
 - **Homebrew** installed
 - **12GB+ free disk space** (sandbox image is ~2.5GB, Ollama models ~10GB)
+- **Google Cloud project with billing enabled** (for Gemini API)
 
 > **Tip:** `df -h /` on macOS with APFS lies about free space. Use `diskutil info / | grep "Container Free Space"` for the real number.
 
@@ -26,33 +27,7 @@ colima start --cpu 4 --memory 8
 
 ---
 
-## 2. Install Ollama
-
-```bash
-brew install ollama
-ollama pull gemma4  # ~10GB, takes a while
-```
-
-Ollama auto-starts as a background service via Homebrew.
-
-**Gotcha:** Ollama defaults to listening on `127.0.0.1` only. For NemoClaw (which runs in a Colima VM), Ollama must be reachable from inside the VM. If using the `ollama` backend with NemoClaw:
-
-```bash
-launchctl setenv OLLAMA_HOST "0.0.0.0:11434"
-brew services restart ollama
-```
-
-Then update the OpenShell provider to use the Colima host IP (not `localhost`):
-
-```bash
-# Find the host IP from Colima's perspective:
-colima ssh -- ip route show default  # look for "via X.X.X.X"
-openshell provider update ollama-local --config "OPENAI_BASE_URL=http://X.X.X.X:11434/v1"
-```
-
----
-
-## 3. Install NemoClaw
+## 2. Install NemoClaw
 
 ```bash
 curl -fsSL https://www.nvidia.com/nemoclaw.sh | bash
@@ -84,38 +59,45 @@ TRII's scripts use `setsid` (Linux command) for process group isolation. macOS d
 
 ---
 
-## 4. Create the NemoClaw sandbox
+## 3. Create the NemoClaw sandbox with Gemini
 
-### Option A: With Gemini (recommended)
+You need a **Gemini API key from a billing-enabled GCP project**. Free-tier keys hit rate limits almost immediately with agent workloads.
+
+1. Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+2. Click "Create API Key"
+3. **Select your billing-enabled project** from the dropdown
+4. Copy the key
+
+Then create the sandbox:
 
 ```bash
-GEMINI_API_KEY="your-key-here" \
+GEMINI_API_KEY="your-billing-enabled-key" \
   NEMOCLAW_PROVIDER=gemini \
   NEMOCLAW_MODEL=gemini-2.5-flash \
   NEMOCLAW_NON_INTERACTIVE=1 \
   nemoclaw onboard --non-interactive --yes-i-accept-third-party-software
 ```
 
-### Option B: With local Ollama
-
-```bash
-NEMOCLAW_PROVIDER=ollama \
-  NEMOCLAW_MODEL=gemma4 \
-  NEMOCLAW_NON_INTERACTIVE=1 \
-  nemoclaw onboard --non-interactive --yes-i-accept-third-party-software
-```
-
-**Gotcha (Ollama):** After onboard, the inference provider may point at `localhost:11434` which is unreachable from inside the Colima VM. Update the provider to use the host IP (see step 2).
-
-**Gotcha (Ollama):** The default inference timeout is 60s. Gemma4 on M1 needs ~50s for cold start. Increase it:
+After onboard, increase the inference timeout (Gemini tool-calling can take time):
 
 ```bash
 openshell inference update --timeout 180 --no-verify
 ```
 
+**Gotcha (free tier key):** Free-tier Gemini API keys have very low RPM limits. OpenClaw retries on failure, which burns through the quota fast. You will see `API rate limit reached` errors constantly. **Always use a billing-enabled key.**
+
+**Gotcha (API key type):** The `openshell provider` uses a field called `OPENAI_API_KEY` internally — this is just the generic name for the credential in the `openai`-compatible provider type. Your Gemini key goes here. No data goes to OpenAI.
+
+**Gotcha (model config locked):** The sandbox's `openclaw.json` is baked in read-only at build time. To change the model or API type, you must destroy and rebuild the sandbox:
+
+```bash
+nemoclaw my-assistant destroy --yes
+# Then re-run the onboard command above
+```
+
 ---
 
-## 5. Copy projects into the sandbox
+## 4. Copy projects into the sandbox
 
 The sandbox has an isolated filesystem at `/sandbox/`. Projects must be copied in:
 
@@ -140,11 +122,25 @@ ssh -T -F /tmp/nc-ssh openshell-my-assistant '
 
 **Gotcha:** `scp` doesn't work (no sftp-server in sandbox). Use tar-over-ssh instead.
 
-**Gotcha:** `git clone` from GitHub requires credentials. For private repos, either SCP files in or set up a GitHub PAT inside the sandbox.
+**Gotcha:** `git clone` from GitHub requires credentials. For private repos, use tar-over-ssh to copy files in.
+
+### Adding Google API access (for DSPI, Calendar, Gmail)
+
+The sandbox's TLS-terminating proxy strips OAuth Bearer tokens, so tools that need Google OAuth (DSPI, Calendar, Gmail) **cannot call Google APIs directly from the sandbox**. 
+
+TRII handles this by running DSPI on the **host** and injecting the output into the agent's prompt. This happens automatically in `run-agent.sh` when a task mentions "dspi", "calendar", "meetings", "inbox", or "status".
+
+To add custom Google API network access to the sandbox (e.g., for non-OAuth endpoints), export and update the policy:
+
+```bash
+openshell policy get my-assistant --full | sed '1,/^---$/d' > /tmp/policy.yaml
+# Append google_apis section (see examples in repo)
+openshell policy set my-assistant --policy /tmp/policy.yaml --wait
+```
 
 ---
 
-## 6. Configure Slack
+## 5. Configure Slack
 
 ### Create the Slack app
 
@@ -175,25 +171,24 @@ ssh -T -F /tmp/nc-ssh openshell-my-assistant '
 
 ```bash
 cp .env.example .env
-# Edit .env: add both tokens
+# Edit .env: add both tokens (SLACK_BOT_TOKEN and SLACK_APP_TOKEN)
 
 # Edit channels.json: set your channel ID
 # Get channel ID: right-click channel in Slack → View channel details → scroll to bottom
 ```
 
-### Test
+### Test messaging
 
 ```bash
-# Test messaging (one-way post)
+# Test one-way post to Slack
 ./post-message.sh general "TRII online"
-
-# Start the Socket Mode listener
-.venv/bin/python3 slack-listener.py
 ```
 
 ---
 
-## 7. Socket Mode listener setup
+## 6. Socket Mode listener setup
+
+The listener bridges Slack into TRII's dispatch system. @mentions and DMs create dispatch JSON files, which the agent picks up and processes.
 
 ```bash
 # Create virtual environment and install dependency
@@ -203,22 +198,71 @@ python3 -m venv .venv
 # Test manually
 .venv/bin/python3 slack-listener.py
 
-# Install as persistent daemon
+# Install as persistent daemon (auto-restarts on crash)
 cp com.trii.slack-listener.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.trii.slack-listener.plist
 ```
 
+### How it works
+
+1. User sends `@TRII_Bot do something` in Slack
+2. Listener writes `dispatch/{timestamp}-slack.json`
+3. Listener sends "Dispatched. Working on it." ack to Slack
+4. Listener kicks `dispatch-watcher.sh`
+5. Dispatch watcher runs `run-agent.sh` which:
+   - Refreshes OAuth tokens (if needed for DSPI)
+   - Injects DSPI dashboard data if task mentions calendar/meetings/inbox
+   - SSHs into NemoClaw sandbox and runs the OpenClaw agent
+6. Agent response is posted back to Slack
+
 ---
 
-## 8. Schedule TRII (optional)
+## 7. Schedule TRII cron (optional)
 
-Edit `com.trii.run.plist` — replace `/CHANGE_ME/TRII` with your actual path:
+For autonomous scheduled runs (not just Slack-triggered):
 
 ```bash
+# Edit plist with your actual path
 sed -i '' "s|/CHANGE_ME/TRII|$(pwd)|g" com.trii.run.plist
 cp com.trii.run.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.trii.run.plist
 ```
+
+This runs `trii-run.sh` every hour, which rotates through projects in `RADAR.md`.
+
+---
+
+## 8. Verify everything works
+
+```bash
+# 1. Sandbox is running
+nemoclaw my-assistant status
+
+# 2. Agent responds (direct test)
+openshell sandbox ssh-config my-assistant > /tmp/nc-ssh && chmod 600 /tmp/nc-ssh
+ssh -T -F /tmp/nc-ssh openshell-my-assistant \
+  'openclaw agent --agent main --local -m "say hello" --session-id verify-1 2>&1'
+
+# 3. Slack messaging works
+./post-message.sh general "TRII verification complete"
+
+# 4. Slack listener is connected
+.venv/bin/python3 slack-listener.py  # should print [ws] connected.
+
+# 5. Full pipeline: @mention the bot in Slack and verify response comes back
+```
+
+---
+
+## Post-reboot checklist
+
+After a Mac restart, these services need to be running:
+
+1. **Colima:** `colima start --cpu 4 --memory 8`
+2. **Ollama** (if using local model): starts automatically via Homebrew
+3. **Slack listener:** starts automatically if launchd plist is loaded, otherwise: `.venv/bin/python3 slack-listener.py`
+
+The NemoClaw sandbox persists across Colima restarts. Verify with `nemoclaw my-assistant status`.
 
 ---
 
@@ -229,9 +273,13 @@ launchctl load ~/Library/LaunchAgents/com.trii.run.plist
 | `unable to find user sandbox` | Stale GHCR base image | Rebuild locally: `cd ~/.nemoclaw/source && docker build -f Dockerfile.base -t ghcr.io/nvidia/nemoclaw/sandbox-base:latest .` |
 | `python3: Exec format error` | Base image has corrupted binaries | Same fix — rebuild locally |
 | `setsid: command not found` | macOS doesn't have setsid | Included shim at `bin/setsid` — ensure `PATH` includes it |
-| `LLM request timed out` | Inference timeout too low for model | `openshell inference update --timeout 180 --no-verify` |
-| `400 status code (no body)` | Model config mismatch in sandbox | Rebuild sandbox with correct provider/model |
+| `LLM request timed out` | Inference timeout too low | `openshell inference update --timeout 180 --no-verify` |
+| `API rate limit reached` | Free-tier Gemini API key | Use a key from a billing-enabled GCP project |
+| `400 status code (no body)` | Model config mismatch in sandbox | Rebuild sandbox: `nemoclaw my-assistant destroy --yes` then re-onboard |
+| `401 status code` | Expired or invalid API key | Update provider: `openshell provider update gemini-api --credential "OPENAI_API_KEY=new-key"` |
 | `session file locked` | Stale lock from crashed agent | `ssh ... 'rm -f /sandbox/.openclaw-data/agents/main/sessions/*.lock'` |
 | `channel_not_found` | Bot not invited to channel | `/invite @BotName` in Slack channel |
-| Docker/colima hangs | VM ran out of resources during build | `colima stop -f && colima start --cpu 4 --memory 8` |
+| Docker/colima hangs | VM ran out of resources | `colima stop -f && colima start --cpu 4 --memory 8` |
 | `df` shows 0 free space | APFS purgeable space not counted | Use `diskutil info / \| grep "Container Free Space"` |
+| DSPI shows no calendar data | Google APIs blocked by sandbox proxy | Expected — DSPI runs on host, results injected into agent prompt |
+| `could not read Username for GitHub` | No GitHub auth in sandbox | Use tar-over-ssh to copy files instead of git clone |

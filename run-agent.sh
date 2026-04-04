@@ -39,15 +39,29 @@ case "$MODEL_BACKEND" in
     fi
     chmod 600 "$CONF_FILE"
 
-    # Refresh Vertex AI OAuth token and inject into sandbox
+    # Refresh Vertex AI OAuth token and update gateway provider
     FRESH_TOKEN=$("$SCRIPT_DIR/refresh-vertex-token.sh" 2>/dev/null)
     if [ -n "$FRESH_TOKEN" ]; then
-      ssh -T -F "$CONF_FILE" "openshell-${SANDBOX_NAME}" \
-        "export GOOGLE_API_KEY='$FRESH_TOKEN'" >/dev/null 2>&1 || true
+      openshell provider update gemini-api \
+        --credential "GEMINI_API_KEY=$FRESH_TOKEN" >/dev/null 2>&1 || true
+    fi
+
+    # If prompt mentions dspi/calendar/inbox, run dspi on host and prepend output
+    if echo "$PROMPT" | grep -qiE 'dspi|calendar|meeting|inbox|email|status'; then
+      DSPI_OUTPUT=$(dspi status 2>/dev/null | head -60)
+      if [ -n "$DSPI_OUTPUT" ]; then
+        PROMPT="Here is the current DSPI dashboard output (run on host, live data):
+
+${DSPI_OUTPUT}
+
+---
+
+${PROMPT}"
+      fi
     fi
 
     ssh -T -F "$CONF_FILE" "openshell-${SANDBOX_NAME}" \
-      "GOOGLE_API_KEY='$FRESH_TOKEN' openclaw agent --agent main --local -m $(printf '%q' "$PROMPT") --session-id $(printf '%q' "$SESSION_ID")"
+      "openclaw agent --agent main --local -m $(printf '%q' "$PROMPT") --session-id $(printf '%q' "$SESSION_ID")"
     ;;
 
   ollama)
