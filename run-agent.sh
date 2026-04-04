@@ -46,29 +46,37 @@ case "$MODEL_BACKEND" in
         --credential "GEMINI_API_KEY=$FRESH_TOKEN" >/dev/null 2>&1 || true
     fi
 
-    # Always inject live host context — calendar, inbox, contract alerts
-    # These tools need Google OAuth which only works on the host
-    DSPI_OUTPUT=$(dspi status 2>/dev/null | head -60)
-    CALENDAR_OUTPUT=$(python3 -c "
+    # Inject host-side data when keywords match (Google OAuth tools can't run in sandbox)
+    HOST_CONTEXT=""
+
+    # "calendar" triggers 14-day calendar injection
+    if echo "$PROMPT" | grep -qiE 'calendar|meeting|schedule|monday|tuesday|wednesday|thursday|friday|next week|this week'; then
+      CALENDAR_OUTPUT=$(python3 -c "
 import sys
 sys.path.insert(0, '$HOME/Desktop/Projects.nosync/GWS_CLI')
 from dspi.calendar_ctx import get_upcoming_events, build_calendar_context_string
 events = get_upcoming_events(days=14)
 print(build_calendar_context_string(events))
 " 2>/dev/null)
-    HOST_CONTEXT=""
-    if [ -n "$DSPI_OUTPUT" ]; then
-      HOST_CONTEXT="DSPI Dashboard (live data — contracts, inbox, tasks):
-${DSPI_OUTPUT}"
-    fi
-    if [ -n "$CALENDAR_OUTPUT" ]; then
-      HOST_CONTEXT="${HOST_CONTEXT}
-
-Full 14-day calendar (live data with attendees):
+      if [ -n "$CALENDAR_OUTPUT" ]; then
+        HOST_CONTEXT="14-day calendar (live):
 ${CALENDAR_OUTPUT}"
+      fi
     fi
+
+    # "dspi/inbox/contracts" triggers dashboard injection
+    if echo "$PROMPT" | grep -qiE 'dspi|inbox|email|contract|alert|status'; then
+      DSPI_OUTPUT=$(dspi status 2>/dev/null | head -60)
+      if [ -n "$DSPI_OUTPUT" ]; then
+        HOST_CONTEXT="${HOST_CONTEXT}${HOST_CONTEXT:+
+
+}DSPI Dashboard (live):
+${DSPI_OUTPUT}"
+      fi
+    fi
+
     if [ -n "$HOST_CONTEXT" ]; then
-      PROMPT="## Live Context (fetched from host)
+      PROMPT="## Live Context (from host)
 
 ${HOST_CONTEXT}
 
