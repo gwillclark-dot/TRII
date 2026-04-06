@@ -96,9 +96,11 @@ TOOLS = [
 def exec_run_command(command: str, workdir: str = "") -> str:
     cwd = workdir or str(PROJECTS_DIR)
     cwd = os.path.expanduser(cwd)
+    # Use login shell so PATH includes Homebrew, pip-installed CLIs, etc.
+    wrapped = f"source ~/.zprofile 2>/dev/null; source ~/.zshrc 2>/dev/null; {command}"
     try:
         r = subprocess.run(
-            command, shell=True, capture_output=True, text=True,
+            ["zsh", "-c", wrapped], capture_output=True, text=True,
             timeout=CMD_TIMEOUT, cwd=cwd,
         )
         output = r.stdout
