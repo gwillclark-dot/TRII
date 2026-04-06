@@ -50,37 +50,10 @@ for f in "$DISPATCH_DIR"/*.json; do
   echo "Task: $TASK" >> "$LOGFILE"
   echo "" >> "$LOGFILE"
 
-  # Map project to sandbox path (agent runs inside NemoClaw sandbox)
-  SANDBOX_WORK_DIR="/sandbox/${PROJECT}"
+  PROMPT="Your task: ${TASK}
 
-  PROMPT="You are TRII, an autonomous coding agent.
-
-CRITICAL: Your project files are at /sandbox/${PROJECT}/ (NOT in your default workspace directory).
-Run: ls /sandbox/${PROJECT}/ to see the actual project files before doing anything else.
-
-Available projects under /sandbox/: GWS_CLI, KNOWLEDGE_CLI, Conductor_CLI
-
-Your task: ${TASK}
-
-Rules:
-- Always use absolute paths starting with /sandbox/${PROJECT}/
-- Use tools to read files and run commands. Do not describe what you would do — do it.
-- Output only the final result. No plans, no step narration.
-- Keep response under 500 words.
-
-## Host Actions
-You can request host-side operations by outputting this directive on its own line:
-%%%HOST_ACTION:action-name%%%
-
-Available actions:
-- restart-gateway — restart the sandbox OpenClaw gateway
-- reload-listener — restart the Slack listener
-- refresh-tokens — refresh Google OAuth tokens
-- sync-project-gws — re-sync GWS_CLI from host to sandbox
-- sync-project-knowledge — re-sync KNOWLEDGE_CLI from host to sandbox
-
-Actions execute AFTER your session ends. You will not see the result.
-Only request an action when the current task requires it."
+Project: ${PROJECT}
+Project directory: ${WORK_DIR}"
 
   # Execute via adapter (in project directory, own process group)
   cd "$WORK_DIR"

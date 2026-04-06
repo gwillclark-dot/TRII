@@ -117,8 +117,13 @@ ${PROMPT}"
       | python3 -c "import json,sys; print(json.load(sys.stdin).get('content',''))"
     ;;
 
+  gemini)
+    check_command python3
+    "$SCRIPT_DIR/gemini-agent.py" "$PROMPT" "$SESSION_ID"
+    ;;
+
   *)
-    echo "ERROR: Unknown MODEL_BACKEND '$MODEL_BACKEND'. Supported: nemoclaw, ollama, llamacpp" >&2
+    echo "ERROR: Unknown MODEL_BACKEND '$MODEL_BACKEND'. Supported: gemini, nemoclaw, ollama, llamacpp" >&2
     exit 1
     ;;
 esac

@@ -107,25 +107,13 @@ def send_ack_message(channel, text="Dispatched. Working on it."):
         print(f"[warn] ack failed: {e}", file=sys.stderr, flush=True)
 
 def clear_session(channel):
-    """Clear sandbox session state so the agent starts fresh."""
+    """Clear agent session so it starts fresh."""
     print("[cmd] clearing session", flush=True)
     try:
-        conf = subprocess.run(
-            ["openshell", "sandbox", "ssh-config", "my-assistant"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if conf.returncode == 0:
-            conf_path = SCRIPT_DIR / ".tmp-ssh-config"
-            conf_path.write_text(conf.stdout)
-            conf_path.chmod(0o600)
-            subprocess.run(
-                ["ssh", "-T", "-F", str(conf_path), "openshell-my-assistant",
-                 "rm -f /sandbox/.openclaw-data/agents/main/sessions/*.jsonl "
-                 "/sandbox/.openclaw-data/agents/main/sessions/*.lock "
-                 "/sandbox/.openclaw-data/agents/main/sessions/sessions.json"],
-                timeout=10, capture_output=True,
-            )
-            conf_path.unlink(missing_ok=True)
+        session_dir = SCRIPT_DIR / "sessions"
+        if session_dir.exists():
+            for f in session_dir.glob("*.json"):
+                f.unlink()
         send_ack_message(channel, "Session cleared. Starting fresh.")
     except Exception as e:
         print(f"[warn] clear session failed: {e}", file=sys.stderr, flush=True)
