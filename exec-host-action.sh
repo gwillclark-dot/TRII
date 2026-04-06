@@ -31,6 +31,9 @@ fi
 
 echo "Executing host action: $ACTION" >&2
 
+# Export vars so child bash -c inherits them
+export TRII_HOME SCRIPT_DIR HOME
+
 # Execute with 30s timeout (perl fallback for macOS which lacks timeout)
 if command -v timeout &>/dev/null; then
   OUTPUT=$(timeout 30 bash -c "$COMMAND" 2>&1) && EXIT=0 || EXIT=$?
