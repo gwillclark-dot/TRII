@@ -124,19 +124,121 @@ ssh -T -F /tmp/nc-ssh openshell-my-assistant '
 
 **Gotcha:** `git clone` from GitHub requires credentials. For private repos, use tar-over-ssh to copy files in.
 
-### Adding Google API access (for DSPI, Calendar, Gmail)
+### Adding Google API access (for DSPI, Calendar, Gmail, NotebookLM)
 
-The sandbox's TLS-terminating proxy strips OAuth Bearer tokens, so tools that need Google OAuth (DSPI, Calendar, Gmail) **cannot call Google APIs directly from the sandbox**. 
+The sandbox can access Google APIs — but the network policy must be configured correctly. Two critical details:
 
-TRII handles this by running DSPI on the **host** and injecting the output into the agent's prompt. This happens automatically in `run-agent.sh` when a task mentions "dspi", "calendar", "meetings", "inbox", or "status".
+1. **Use `access: full`** (not `protocol: rest` with `tls: terminate`). The `access: full` mode creates a raw CONNECT tunnel that bypasses TLS termination. This is required because compiled binaries like `gws` (Rust) use their own TLS stack and reject the proxy's re-signed certificates.
 
-To add custom Google API network access to the sandbox (e.g., for non-OAuth endpoints), export and update the policy:
+2. **Use wildcard binary paths** (`/usr/bin/python3*` not `/usr/bin/python3`). The proxy resolves symlinks before checking — `/usr/bin/python3` is a symlink to `/usr/bin/python3.11`, and the exact path doesn't match without a wildcard.
+
+**Gotcha:** Without the wildcard, `curl` works but Python gets 403 Forbidden from the proxy. The PyPI preset (which works for `pip install`) uses `/usr/bin/python3*` — follow that pattern.
+
+Export and update the policy:
 
 ```bash
 openshell policy get my-assistant --full | sed '1,/^---$/d' > /tmp/policy.yaml
-# Append google_apis section (see examples in repo)
+```
+
+Add this section under `network_policies:`:
+
+```yaml
+  google_apis:
+    name: google_apis
+    endpoints:
+    - host: www.googleapis.com
+      port: 443
+      access: full
+    - host: gmail.googleapis.com
+      port: 443
+      access: full
+    - host: oauth2.googleapis.com
+      port: 443
+      access: full
+    - host: accounts.google.com
+      port: 443
+      access: full
+    - host: notebooklm.google.com
+      port: 443
+      access: full
+    - host: us-central1-aiplatform.googleapis.com
+      port: 443
+      access: full
+    - host: generativelanguage.googleapis.com
+      port: 443
+      access: full
+    binaries:
+    - path: /usr/bin/python3*
+    - path: /usr/local/bin/python3*
+    - path: /sandbox/.local/bin/python*
+    - path: /sandbox/.local/bin/dspi
+    - path: /sandbox/.local/bin/nb
+    - path: /sandbox/.local/bin/email
+    - path: /sandbox/.local/bin/gws
+    - path: /usr/local/bin/node
+    - path: /usr/local/bin/openclaw
+    - path: /usr/bin/curl
+```
+
+For Playwright (needed by `nb` for NotebookLM), also add:
+
+```yaml
+  playwright_cdn:
+    name: playwright_cdn
+    endpoints:
+    - host: cdn.playwright.dev
+      port: 443
+      access: full
+    - host: playwright.download.prss.microsoft.com
+      port: 443
+      access: full
+    binaries:
+    - path: /usr/local/bin/node
+    - path: /usr/bin/python3*
+    - path: /usr/bin/curl
+```
+
+Apply:
+
+```bash
 openshell policy set my-assistant --policy /tmp/policy.yaml --wait
 ```
+
+### Injecting credentials into the sandbox
+
+Tools that need Google OAuth (DSPI, gws, nb) require credentials injected from the host:
+
+```bash
+# Refresh OAuth token and inject email-wizard config
+python3 -c "
+import json, urllib.request, time
+path = '$HOME/.config/email-wizard/config.json'
+c = json.load(open(path))
+data = json.dumps({
+    'client_id': c['oauth_client_id'],
+    'client_secret': c.get('oauth_client_secret',''),
+    'refresh_token': c['oauth_refresh_token'],
+    'grant_type': 'refresh_token'
+}).encode()
+req = urllib.request.Request('https://oauth2.googleapis.com/token', data=data, headers={'Content-Type':'application/json'})
+resp = json.loads(urllib.request.urlopen(req).read())
+c['oauth_access_token'] = resp['access_token']
+c['oauth_expires_at'] = time.time() + resp.get('expires_in', 3600)
+json.dump(c, open(path, 'w'), indent=2)
+print(json.dumps(c))
+" | ssh -F /tmp/nc-ssh openshell-my-assistant \
+  'mkdir -p /sandbox/.config/email-wizard && cat > /sandbox/.config/email-wizard/config.json && chmod 600 /sandbox/.config/email-wizard/config.json'
+
+# Inject gws credentials
+tar -C ~/.config -cf - gws | ssh -F /tmp/nc-ssh openshell-my-assistant \
+  'mkdir -p /sandbox/.config && tar -C /sandbox/.config -xf -'
+
+# Inject NotebookLM auth (for nb)
+cat ~/.notebooklm/storage_state.json | ssh -F /tmp/nc-ssh openshell-my-assistant \
+  'mkdir -p /sandbox/.notebooklm && cat > /sandbox/.notebooklm/storage_state.json && chmod 600 /sandbox/.notebooklm/storage_state.json'
+```
+
+**Gotcha:** OAuth tokens expire after ~1 hour. Re-inject before agent runs, or add a refresh step to `run-agent.sh`.
 
 ---
 
@@ -281,5 +383,7 @@ The NemoClaw sandbox persists across Colima restarts. Verify with `nemoclaw my-a
 | `channel_not_found` | Bot not invited to channel | `/invite @BotName` in Slack channel |
 | Docker/colima hangs | VM ran out of resources | `colima stop -f && colima start --cpu 4 --memory 8` |
 | `df` shows 0 free space | APFS purgeable space not counted | Use `diskutil info / \| grep "Container Free Space"` |
-| DSPI shows no calendar data | Google APIs blocked by sandbox proxy | Expected — DSPI runs on host, results injected into agent prompt |
+| Python gets `403 Forbidden` but curl works | Binary path mismatch in network policy | Use wildcard paths: `/usr/bin/python3*` not `/usr/bin/python3` (proxy resolves symlinks) |
+| `gws` gets "Failed to send token refresh request" | TLS termination breaks compiled binaries | Use `access: full` (not `protocol: rest` with `tls: terminate`) for the endpoint |
+| DSPI shows no calendar/inbox data | Missing network policy or credentials | Add `google_apis` policy with `access: full` + wildcard binaries, then inject fresh OAuth config |
 | `could not read Username for GitHub` | No GitHub auth in sandbox | Use tar-over-ssh to copy files instead of git clone |
