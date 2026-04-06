@@ -42,14 +42,27 @@ The published `ghcr.io/nvidia/nemoclaw/sandbox-base:latest` image may be missing
 Docker stream error: unable to find user sandbox: no matching entries in passwd file
 ```
 
-**Fix:** Rebuild the base image locally from NemoClaw's source:
+**Fix:** Rebuild the base image locally from NemoClaw's source. Before building, add Playwright/Chromium dependencies to `~/.nemoclaw/source/Dockerfile.base` — append these to the existing `apt-get install` block:
+
+```
+        # Playwright/Chromium headless dependencies
+        libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 \
+        libcairo2 libcups2 libdbus-1-3 libgbm1 libglib2.0-0 \
+        libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 \
+        libxcomposite1 libxdamage1 libxext6 libxfixes3 \
+        libxkbcommon0 libxrandr2 \
+```
+
+Then build:
 
 ```bash
 cd ~/.nemoclaw/source
 docker build -f Dockerfile.base -t ghcr.io/nvidia/nemoclaw/sandbox-base:latest .
 ```
 
-This takes 3-5 minutes and ensures the `sandbox` user exists.
+This takes 3-5 minutes and ensures the `sandbox` user exists and Playwright can run headless Chromium.
+
+**Gotcha:** Without these deps, `playwright install chromium` succeeds but Chromium won't launch (`Host system is missing dependencies`). The sandbox can't `apt-get install` at runtime (no root), so deps must be baked into the base image.
 
 ### Known issue: `setsid` not found on macOS
 
