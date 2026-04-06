@@ -31,8 +31,12 @@ fi
 
 echo "Executing host action: $ACTION" >&2
 
-# Execute with 30s timeout
-OUTPUT=$(timeout 30 bash -c "$COMMAND" 2>&1) && EXIT=0 || EXIT=$?
+# Execute with 30s timeout (perl fallback for macOS which lacks timeout)
+if command -v timeout &>/dev/null; then
+  OUTPUT=$(timeout 30 bash -c "$COMMAND" 2>&1) && EXIT=0 || EXIT=$?
+else
+  OUTPUT=$(perl -e 'alarm 30; exec @ARGV' bash -c "$COMMAND" 2>&1) && EXIT=0 || EXIT=$?
+fi
 OUTPUT_SHORT=$(echo "$OUTPUT" | tail -5 | head -c 500)
 
 if [ $EXIT -eq 0 ]; then
