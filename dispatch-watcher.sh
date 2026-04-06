@@ -66,7 +66,21 @@ Rules:
 - Always use absolute paths starting with /sandbox/${PROJECT}/
 - Use tools to read files and run commands. Do not describe what you would do — do it.
 - Output only the final result. No plans, no step narration.
-- Keep response under 500 words."
+- Keep response under 500 words.
+
+## Host Actions
+You can request host-side operations by outputting this directive on its own line:
+%%%HOST_ACTION:action-name%%%
+
+Available actions:
+- restart-gateway — restart the sandbox OpenClaw gateway
+- reload-listener — restart the Slack listener
+- refresh-tokens — refresh Google OAuth tokens
+- sync-project-gws — re-sync GWS_CLI from host to sandbox
+- sync-project-knowledge — re-sync KNOWLEDGE_CLI from host to sandbox
+
+Actions execute AFTER your session ends. You will not see the result.
+Only request an action when the current task requires it."
 
   # Execute via adapter (in project directory, own process group)
   cd "$WORK_DIR"
@@ -109,6 +123,17 @@ Rules:
     else
       "$SCRIPT_DIR/post-message.sh" "$CHANNEL" "✅ Dispatch for ${PROJECT} completed (no output)." 2>/dev/null || true
     fi
+  fi
+
+  # Extract and execute host-side actions from agent output
+  if [ -s "$STDOUT_FILE" ]; then
+    grep -oE '%%%HOST_ACTION:[a-z0-9][-a-z0-9]*%%%' "$STDOUT_FILE" \
+      | sed 's/%%%HOST_ACTION://;s/%%%//' \
+      | head -3 \
+      | while read -r HA; do
+          echo "Host action requested: $HA" >> "$LOGFILE"
+          "$SCRIPT_DIR/exec-host-action.sh" "$HA" "$CHANNEL" >> "$LOGFILE" 2>&1 || true
+        done
   fi
 
   # Push changes

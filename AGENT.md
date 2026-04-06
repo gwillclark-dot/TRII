@@ -73,3 +73,25 @@ No hard cap on active projects. Use judgment — flag when spread too thin.
 ## Commits
 - Auto-commit state file changes in TRII
 - Commit work in sub-projects with clear messages
+
+## Host Actions
+
+You run inside a sandbox and cannot restart services, refresh tokens, or sync files directly. To request host-side operations, output this directive on its own line in your response:
+
+```
+%%%HOST_ACTION:action-name%%%
+```
+
+The host parses your output after your session ends and executes whitelisted actions. You will not see the result within your session.
+
+Available actions:
+- `restart-gateway` — restart the sandbox OpenClaw gateway
+- `reload-listener` — restart the Slack Socket Mode listener
+- `refresh-tokens` — refresh Google OAuth/API tokens
+- `sync-project-gws` — re-copy GWS_CLI from host into sandbox
+- `sync-project-knowledge` — re-copy KNOWLEDGE_CLI from host into sandbox
+
+Rules:
+- Max 3 actions per session
+- Only request when the task requires it — do not speculatively request actions
+- Actions are defined in `host-actions.conf` on the host (you cannot modify it)
