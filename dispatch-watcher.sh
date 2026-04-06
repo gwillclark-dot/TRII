@@ -82,6 +82,15 @@ Available actions:
 Actions execute AFTER your session ends. You will not see the result.
 Only request an action when the current task requires it."
 
+  # Clear previous session state so each dispatch starts fresh
+  CONF_TMP=$(mktemp -d)
+  if openshell sandbox ssh-config my-assistant > "$CONF_TMP/config" 2>/dev/null; then
+    chmod 600 "$CONF_TMP/config"
+    ssh -T -F "$CONF_TMP/config" openshell-my-assistant \
+      'rm -f /sandbox/.openclaw-data/agents/main/sessions/*.jsonl /sandbox/.openclaw-data/agents/main/sessions/*.lock /sandbox/.openclaw-data/agents/main/sessions/sessions.json' 2>/dev/null || true
+  fi
+  rm -rf "$CONF_TMP"
+
   # Execute via adapter (in project directory, own process group)
   cd "$WORK_DIR"
 
