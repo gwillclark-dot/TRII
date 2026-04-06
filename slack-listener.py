@@ -106,6 +106,31 @@ def send_ack_message(channel, text="Dispatched. Working on it."):
     except Exception as e:
         print(f"[warn] ack failed: {e}", file=sys.stderr, flush=True)
 
+def clear_session(channel):
+    """Clear sandbox session state so the agent starts fresh."""
+    print("[cmd] clearing session", flush=True)
+    try:
+        conf = subprocess.run(
+            ["openshell", "sandbox", "ssh-config", "my-assistant"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if conf.returncode == 0:
+            conf_path = SCRIPT_DIR / ".tmp-ssh-config"
+            conf_path.write_text(conf.stdout)
+            conf_path.chmod(0o600)
+            subprocess.run(
+                ["ssh", "-T", "-F", str(conf_path), "openshell-my-assistant",
+                 "rm -f /sandbox/.openclaw-data/agents/main/sessions/*.jsonl "
+                 "/sandbox/.openclaw-data/agents/main/sessions/*.lock "
+                 "/sandbox/.openclaw-data/agents/main/sessions/sessions.json"],
+                timeout=10, capture_output=True,
+            )
+            conf_path.unlink(missing_ok=True)
+        send_ack_message(channel, "Session cleared. Starting fresh.")
+    except Exception as e:
+        print(f"[warn] clear session failed: {e}", file=sys.stderr, flush=True)
+        send_ack_message(channel, "Failed to clear session.")
+
 def kick_dispatch_watcher():
     """Run dispatch-watcher.sh if no other instance is running."""
     lock = SCRIPT_DIR / ".dispatch-lock"
@@ -174,6 +199,11 @@ def handle_envelope(ws, raw):
         return
 
     print(f"[event] {event_type} in {channel}: {text[:80]}", flush=True)
+
+    # Handle "new session" command directly (no dispatch needed)
+    if re.match(r"(?i)(new session|start.*(new|fresh) session|clear session|reset)", text):
+        clear_session(channel)
+        return
 
     write_dispatch(text, channel)
     send_ack_message(channel)
