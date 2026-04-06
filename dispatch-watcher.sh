@@ -116,10 +116,12 @@ Only request an action when the current task requires it."
       2>/dev/null || true
   else
     echo "=== Dispatch completed at $(date) ===" >> "$LOGFILE"
-    # Post agent response to Slack
+    # Post agent response to Slack (strip host action directives)
     if [ -s "$STDOUT_FILE" ]; then
-      RESPONSE=$(tail -10 "$STDOUT_FILE" | head -c 3000)
-      "$SCRIPT_DIR/post-message.sh" "$CHANNEL" "$RESPONSE" 2>/dev/null || true
+      RESPONSE=$(grep -v '%%%HOST_ACTION:' "$STDOUT_FILE" | tail -10 | head -c 3000)
+      if [ -n "$(echo "$RESPONSE" | tr -d '[:space:]')" ]; then
+        "$SCRIPT_DIR/post-message.sh" "$CHANNEL" "$RESPONSE" 2>/dev/null || true
+      fi
     else
       "$SCRIPT_DIR/post-message.sh" "$CHANNEL" "✅ Dispatch for ${PROJECT} completed (no output)." 2>/dev/null || true
     fi
