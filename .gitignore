@@ -4,7 +4,6 @@ session-log/*.log
 session-log/.agent-stdout-*
 session-log/.dispatch-stdout-*
 dispatch/done/*.json
-sessions/
 __pycache__/
 *.pyc
 .DS_Store

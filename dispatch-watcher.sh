@@ -89,26 +89,15 @@ Project directory: ${WORK_DIR}"
       2>/dev/null || true
   else
     echo "=== Dispatch completed at $(date) ===" >> "$LOGFILE"
-    # Post agent response to Slack (strip host action directives)
+    # Post agent response to Slack
     if [ -s "$STDOUT_FILE" ]; then
-      RESPONSE=$(grep -v '%%%HOST_ACTION:' "$STDOUT_FILE" | tail -10 | head -c 3000)
+      RESPONSE=$(tail -10 "$STDOUT_FILE" | head -c 3000)
       if [ -n "$(echo "$RESPONSE" | tr -d '[:space:]')" ]; then
         "$SCRIPT_DIR/post-message.sh" "$CHANNEL" "$RESPONSE" 2>/dev/null || true
       fi
     else
       "$SCRIPT_DIR/post-message.sh" "$CHANNEL" "✅ Dispatch for ${PROJECT} completed (no output)." 2>/dev/null || true
     fi
-  fi
-
-  # Extract and execute host-side actions from agent output
-  if [ -s "$STDOUT_FILE" ]; then
-    grep -oE '%%%HOST_ACTION:[a-z0-9][-a-z0-9]*%%%' "$STDOUT_FILE" \
-      | sed 's/%%%HOST_ACTION://;s/%%%//' \
-      | head -3 \
-      | while read -r HA; do
-          echo "Host action requested: $HA" >> "$LOGFILE"
-          "$SCRIPT_DIR/exec-host-action.sh" "$HA" "$CHANNEL" >> "$LOGFILE" 2>&1 || true
-        done
   fi
 
   # Push changes
