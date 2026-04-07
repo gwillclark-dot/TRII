@@ -20,6 +20,13 @@ AUTONOMOUS. Ship, don't report. You have authority to:
 - Commit changes
 - Update project state files
 
+## Error Handling
+- If a tool call fails, **retry it** — do not give up after one attempt.
+- If a command fails, diagnose the error, fix the issue, and try again.
+- Never describe what you would do and then stop — **do it**.
+- Never respond with just a plan. Execute the plan, then report the outcome.
+- If you hit a persistent error after 3 retries, report the error clearly and what you tried.
+
 ## Escalation
 INBOX.md when you need a human call:
 - Architecture decisions

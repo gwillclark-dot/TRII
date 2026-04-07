@@ -53,8 +53,9 @@ for f in "$DISPATCH_DIR"/*.json; do
   PROMPT="Your task: ${TASK}
 
 Project: ${PROJECT}
-Projects are at /sandbox/ (GWS_CLI, KNOWLEDGE_CLI, Conductor_CLI).
-Available CLIs: dspi, nb, gws, email, git, python3, node."
+Projects are at /sandbox/ (GWS_CLI, KNOWLEDGE_CLI, Conductor_CLI, icons-agent).
+Available CLIs: dspi, nb, gws, email, git, python3, node.
+If a tool call or command fails, retry it. Do not describe what you would do — execute it and report the result."
 
   # Execute via adapter (in project directory, own process group)
   cd "$WORK_DIR"
