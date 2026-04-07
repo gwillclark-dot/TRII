@@ -91,9 +91,9 @@ If a tool call or command fails, retry it. Do not describe what you would do —
       2>/dev/null || true
   else
     echo "=== Dispatch completed at $(date) ===" >> "$LOGFILE"
-    # Post agent response to Slack
+    # Post agent response to Slack (last 40 lines, max 3900 chars for Slack limit)
     if [ -s "$STDOUT_FILE" ]; then
-      RESPONSE=$(tail -10 "$STDOUT_FILE" | head -c 3000)
+      RESPONSE=$(tail -40 "$STDOUT_FILE" | head -c 3900)
       if [ -n "$(echo "$RESPONSE" | tr -d '[:space:]')" ]; then
         "$SCRIPT_DIR/post-message.sh" "$CHANNEL" "$RESPONSE" 2>/dev/null || true
       fi
