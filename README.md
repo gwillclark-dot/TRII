@@ -1,11 +1,13 @@
 # TRII
 
-Portable local-model orchestrator. Same operating model as TRAX — autonomous project management with scheduled runs, dispatch tasks, and state tracking — but designed to run on a local model behind two thin adapters.
+Portable autonomous project orchestrator. Same operating model as TRAX — scheduled runs, dispatch tasks, state tracking — with pluggable model and messaging adapters.
+
+Currently validated against Gemini (via NemoClaw). Local-model adapters (Ollama, llama.cpp) are included, but as of 2026-04 local models aren't yet capable enough for sustained orchestration — treat them as experimental.
 
 ## Architecture
 
 ```
-dispatch/ → trii-run.sh → run-agent.sh  → local model (NemoClaw/Ollama/llama.cpp)
+dispatch/ → trii-run.sh → run-agent.sh  → model (NemoClaw/Ollama/llama.cpp)
                         → post-message.sh → messaging (Slack/stdout)
                         → project state files (STATE.md, RADAR.md, etc.)
 ```

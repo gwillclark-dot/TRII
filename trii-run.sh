@@ -43,8 +43,9 @@ fi
 
 # --- Project rotation ---
 # Add projects to this array as you assign them.
-# Each name must match a subdirectory under TRII_HOME.
-PROJECTS=()
+# Each name must match a subdirectory under TRII_HOME (or examples/).
+# Default ships with the hello-world smoke test — replace with your projects.
+PROJECTS=("hello-world")
 
 if [ ${#PROJECTS[@]} -eq 0 ]; then
   echo "No projects in rotation. Add projects to PROJECTS array in trii-run.sh." >> "$LOGFILE"

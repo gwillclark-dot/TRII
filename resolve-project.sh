@@ -12,9 +12,11 @@ resolve_project_dir() {
   case "$PROJECT" in
     trii|orchestrator) echo "$BASE" ;;
     *)
-      # Check for exact subdirectory match first
+      # Check for exact subdirectory match first, then examples/
       if [ -d "$BASE/$PROJECT" ]; then
         echo "$BASE/$PROJECT"
+      elif [ -d "$BASE/examples/$PROJECT" ]; then
+        echo "$BASE/examples/$PROJECT"
       else
         # Fall back to TRII root
         echo "$BASE" >&2
