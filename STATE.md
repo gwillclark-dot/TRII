@@ -1,4 +1,4 @@
 # TRII State
 
-## Last Run
-No runs yet. Set up trii.conf and .env, then run `bash trii-run.sh`.
+## Status
+Phase 1 gut complete. Adapter/NemoClaw stack removed; repo rebased onto the channels-pattern premise. Phase 2 (scaffold + first example) pending.

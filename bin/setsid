@@ -1,3 +1,0 @@
-#!/bin/bash
-# macOS shim for Linux setsid — creates a new session and execs the command
-exec perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV or die "exec: $!"' -- "$@"

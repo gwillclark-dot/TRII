@@ -1,162 +1,49 @@
-# TRII Orchestration Spec
+# TRII Spec
 
-## Identity
+## What TRII is
 
-TRII acts as a project orchestrator and technical program manager for multiple repositories, running on a local model via NemoClaw.
+A harness for running long-lived agentic CLI sessions as chat-supervised workers. Each project is an independent process: a long-running CLI agent in tmux, listening on a chat channel, with state files on disk.
 
-**Responsibilities:**
-- Supervise project direction
-- Coordinate agent sessions
-- Maintain project state files
-- Summarize progress
-- Detect drift and stalled projects
-- Recommend next work
+## Invariants
 
----
+These are the parts of the architecture that don't change across profiles or backends:
 
-## Core Rules
+1. **Per-project long-running CLI session** — one tmux session per project, supervised by launchd
+2. **Chat channel as dispatch surface** — inbound prompts and outbound posts both flow through the channel; no separate file-queue
+3. **State files on disk** — `CLAUDE.md` (or equivalent), `STATE.md`, `RADAR.md`, `NEXT_STEPS.md`, `DECISIONS.md`, `session-log/`
+4. **Scaffold command** — `trii new <name>` for new projects (Phase 2)
+5. **Watchdog + heartbeat** — tmux-scrape watchdog for blocking prompts and idle detection; periodic heartbeat to prevent token-idle staleness
 
-### Rule 1 — Separation of Roles
+## Variables
 
-| Role | Responsibility |
-|------|---------------|
-| Operator | Sets priorities |
-| TRII | Orchestration |
-| Agent (local model) | Implementation |
-| Git | Ground truth |
+These are the adapter seams:
 
-### Rule 2 — Canonical Project State
+- **Agent CLI** — `claude --channels` (Claude Max) | `codex` | `gemini` | `goose` | `aider`
+- **Chat platform** — Discord (v1) | Slack (v2)
+- **Listener mode**:
+  - `plugin` — the agent CLI handles the chat connection itself (Claude's `--channels` plugin)
+  - `trii` — TRII provides a generic listener that tmux-injects prompts into the agent CLI (BYO-CLI case)
 
-Each repository must maintain these files:
+## Profiles
 
-| File | Purpose |
-|------|---------|
-| `AGENT.md` | Coding instructions |
-| `PROJECT_STATUS.md` | Current direction |
-| `NEXT_STEPS.md` | Task queue |
-| `DECISIONS.md` | Architectural memory |
-| `session-log/` | Chronological run history |
+### Claude Max (v1, Phase 2)
 
-TRII must ensure these files stay synchronized.
+`claude --channels --dangerously-skip-permissions` per project, with `DISCORD_STATE_DIR` env override per process. The Discord plugin is built into `claude`, so TRII does not provide a listener — it's a thin scaffold + supervisor.
 
-### Rule 3 — Agent Autonomy
+Hard dependency on a Claude Max subscription (uses subscription OAuth, not `ANTHROPIC_API_KEY`).
 
-The agent may autonomously:
-- Edit code
-- Refactor
-- Run tests
-- Run development commands
-- Commit changes
+### BYO-CLI (v2, deferred)
 
-**Approval required for:**
-- Architectural redesign
-- Destructive operations
-- Secrets or environment changes
+TRII provides a generic Discord listener that tmux-injects prompts into whichever agent CLI the operator runs. Allows codex, gemini, goose, aider, etc. without porting the channels plugin.
 
-### Rule 4 — Session Reporting
+## Out of scope
 
-Every session must produce a structured summary:
+- Local-model orchestration (was the pre-pivot focus; not the path to product-market fit)
+- Multi-tenant isolation (each project is a process; sandboxing is the agent CLI's responsibility, not TRII's)
+- Web/desktop UI (chat channel IS the UI)
 
-| Field | Description |
-|-------|-------------|
-| Summary | What changed |
-| Files touched | List |
-| Validation | Tests/build results |
-| Direction | Where project is heading |
-| Risks | Blockers or concerns |
-| Next step | Recommended action |
+## Hard rules
 
-TRII must append this to `session-log/`.
-
-### Rule 5 — Drift Detection
-
-TRII must detect and flag project drift.
-
-**Drift conditions:**
-- Work not aligned with milestone
-- Architecture contradicts `DECISIONS.md`
-- Excessive scope expansion
-- Repeated unresolved blockers
-
-**If drift occurs:**
-1. Stop autonomous work
-2. Summarize the conflict
-3. Propose corrective options
-
-### Rule 6 — Velocity with Reversibility
-
-The system prioritizes fast iteration while preserving rollback ability.
-
-**Required practices:**
-- Branch per task
-- Small commits
-- Validation after edits
-- Session logs
-- Architecture documentation
-
----
-
-## Hard Constraints
-
-| Constraint | Policy |
-|------------|--------|
-| Budget | None (local model) |
-| Approval flow | Architecture changes only |
-| Code commits | Allowed |
-| Destructive operations | Require confirmation |
-| Secrets/environment edits | Require confirmation |
-
----
-
-## Project Radar System
-
-TRII maintains a portfolio overview across all projects.
-
-**Purposes:**
-- Detect stalled projects
-- Maintain priority focus
-- Avoid fragmentation
-
----
-
-## Session Scheduler
-
-TRII encourages focused work cycles.
-
-| Mode | Purpose |
-|------|---------|
-| Build Session | Agent implements next milestone |
-| Review Session | Summarize changes |
-| Direction Session | Adjust roadmap |
-| Audit Session | Detect drift |
-
-The system should prefer deep work on one project rather than parallel progress across many.
-
----
-
-## Heartbeat System
-
-TRII runs a periodic check. If project inactive > 7 days:
-1. Generate restart summary
-2. Propose next milestone
-
----
-
-## Operating Model
-
-```
-Operator → TRII orchestrator → Local agent → Repo changes
-                                                  ↓
-                                 TRII → Summary + direction
-```
-
----
-
-## Strategic Principle
-
-Projects must optimize for:
-> **Extreme simplicity over theoretical architecture.**
-
-1. **Minimal Surface Area:** If a project grows complex or starts feature creeping, freeze it and spawn a new, focused project instead.
-2. **Speed & Elegance:** Spend more time on refining ideas and debugging than on adding heavy features.
-3. **Ship & Move:** The goal is a fast, usable tool. Once the core thing is done, move to the next idea.
+- **Headless-first.** No interactive prompts in any TRII script. Setup is scriptable end-to-end.
+- **Per-project state.** No shared global mutable state across projects. Each project's tmux session, plist, and state dir are independent.
+- **Channel is the audit trail.** All operator-visible activity flows through the channel; logs are secondary.
